@@ -34,11 +34,11 @@ jobs:
 
     - name: Build APK
       run: |
-        cd project/clock-widget
+        cd project/project
         gradle assembleDebug
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: My-App
-        path: project/clock-widget/app/build/outputs/apk/debug/*.apk
+        path: project/project/app/build/outputs/apk/debug/*.apk
