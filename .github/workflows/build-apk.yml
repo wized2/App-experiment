@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
     inputs:
       file_id:
-        description: 'Enter your Google Drive File ID (not the full URL)'
+        description: 'Enter your Google Drive File ID (e.g., 1rYd1xgF_Z3GtzDQTOfUXf9FkyMwg_cB_)'
         required: true
 
 jobs:
@@ -14,7 +14,7 @@ jobs:
       run: pip install gdown
 
     - name: Download from Google Drive
-      run: gdown "${{ github.event.inputs.file_id }}" -O project.zip --fuzzy
+      run: gdown "${{ github.event.inputs.file_id }}" -O project.zip
 
     - name: Unzip project
       run: unzip project.zip -d project
