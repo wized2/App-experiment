@@ -29,12 +29,12 @@ jobs:
     - name: Unzip project
       run: unzip project.zip -d project
 
-    # Find the project root (where build.gradle or settings.gradle exists)
+    # Find the project root (where settings.gradle* exists)
     - name: Locate project root
       id: find_root
       run: |
         cd project
-        # Look for settings.gradle (or build.gradle) as a marker
+        # Look for settings.gradle or settings.gradle.kts in current folder
         if [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
           ROOT="."
         else
@@ -45,14 +45,22 @@ jobs:
             exit 1
           fi
         fi
-        echo "PROJECT_ROOT=$ROOT" >> $GITHUB_ENV
-        echo "Found project root: $ROOT"
+        # Remove leading "./" if present
+        ROOT=${ROOT#./}
+        # Build a clean path relative to the workspace
+        if [ "$ROOT" = "." ]; then
+          PROJECT_PATH="project"
+        else
+          PROJECT_PATH="project/$ROOT"
+        fi
+        echo "PROJECT_PATH=$PROJECT_PATH" >> $GITHUB_ENV
+        echo "Found project path: $PROJECT_PATH"
 
     # Make gradlew executable if it exists
     - name: Make gradlew executable
       run: |
-        if [ -f "project/${{ env.PROJECT_ROOT }}/gradlew" ]; then
-          chmod +x "project/${{ env.PROJECT_ROOT }}/gradlew"
+        if [ -f "${{ env.PROJECT_PATH }}/gradlew" ]; then
+          chmod +x "${{ env.PROJECT_PATH }}/gradlew"
           echo "GRADLE_EXE=./gradlew" >> $GITHUB_ENV
         else
           echo "gradlew not found, will use system gradle"
@@ -63,10 +71,8 @@ jobs:
     - name: Patch app/build.gradle to use debug signing for release
       if: github.event.inputs.build_type == 'release'
       run: |
-        cd project/${{ env.PROJECT_ROOT }}
-        BUILD_FILE="app/build.gradle"
+        BUILD_FILE="${{ env.PROJECT_PATH }}/app/build.gradle"
         if [ -f "$BUILD_FILE" ]; then
-          # Insert signingConfig line inside the release block (if not already present)
           if ! grep -q "signingConfig signingConfigs.debug" "$BUILD_FILE"; then
             sed -i '/release {/a\            signingConfig signingConfigs.debug' "$BUILD_FILE"
             echo "Patched $BUILD_FILE to use debug signing for release."
@@ -91,11 +97,11 @@ jobs:
 
     - name: Build APK
       run: |
-        cd project/${{ env.PROJECT_ROOT }}
+        cd ${{ env.PROJECT_PATH }}
         ${{ env.GRADLE_EXE }} assemble${{ github.event.inputs.build_type == 'release' && 'Release' || 'Debug' }}
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: My-App-${{ github.event.inputs.build_type }}
-        path: project/${{ env.PROJECT_ROOT }}/app/build/outputs/apk/${{ github.event.inputs.build_type }}/*.apk
+        path: ${{ env.PROJECT_PATH }}/app/build/outputs/apk/${{ github.event.inputs.build_type }}/*.apk
