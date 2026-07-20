@@ -29,33 +29,50 @@ jobs:
     - name: Unzip project
       run: unzip project.zip -d project
 
-    # Find the root directory that contains gradlew
+    # Find the project root (where build.gradle or settings.gradle exists)
     - name: Locate project root
       id: find_root
       run: |
         cd project
-        GRADLEW_PATH=$(find . -name "gradlew" -type f -print -quit)
-        if [ -z "$GRADLEW_PATH" ]; then
-          echo "gradlew not found in the extracted files."
-          exit 1
+        # Look for settings.gradle (or build.gradle) as a marker
+        if [ -f "settings.gradle" ] || [ -f "settings.gradle.kts" ]; then
+          ROOT="."
+        else
+          # Search one level deeper
+          ROOT=$(find . -maxdepth 2 -name "settings.gradle*" -type f -exec dirname {} \; | head -1)
+          if [ -z "$ROOT" ]; then
+            echo "Could not find settings.gradle - please check your project structure."
+            exit 1
+          fi
         fi
-        PROJECT_ROOT=$(dirname "$GRADLEW_PATH")
-        echo "PROJECT_ROOT=$PROJECT_ROOT" >> $GITHUB_ENV
-        echo "Found gradlew in: $PROJECT_ROOT"
+        echo "PROJECT_ROOT=$ROOT" >> $GITHUB_ENV
+        echo "Found project root: $ROOT"
 
-    # Make gradlew executable
+    # Make gradlew executable if it exists
     - name: Make gradlew executable
-      run: chmod +x project/${{ env.PROJECT_ROOT }}/gradlew
+      run: |
+        if [ -f "project/${{ env.PROJECT_ROOT }}/gradlew" ]; then
+          chmod +x "project/${{ env.PROJECT_ROOT }}/gradlew"
+          echo "GRADLE_EXE=./gradlew" >> $GITHUB_ENV
+        else
+          echo "gradlew not found, will use system gradle"
+          echo "GRADLE_EXE=gradle" >> $GITHUB_ENV
+        fi
 
-    # Patch app/build.gradle for release builds
+    # Patch app/build.gradle to use debug signing for release (only for release builds)
     - name: Patch app/build.gradle to use debug signing for release
       if: github.event.inputs.build_type == 'release'
       run: |
         cd project/${{ env.PROJECT_ROOT }}
         BUILD_FILE="app/build.gradle"
         if [ -f "$BUILD_FILE" ]; then
-          sed -i '/release {/a\            signingConfig signingConfigs.debug' "$BUILD_FILE"
-          echo "Patched $BUILD_FILE to use debug signing for release."
+          # Insert signingConfig line inside the release block (if not already present)
+          if ! grep -q "signingConfig signingConfigs.debug" "$BUILD_FILE"; then
+            sed -i '/release {/a\            signingConfig signingConfigs.debug' "$BUILD_FILE"
+            echo "Patched $BUILD_FILE to use debug signing for release."
+          else
+            echo "Already patched, skipping."
+          fi
         else
           echo "Could not find app/build.gradle - make sure your project structure is standard."
           exit 1
@@ -75,7 +92,7 @@ jobs:
     - name: Build APK
       run: |
         cd project/${{ env.PROJECT_ROOT }}
-        ./gradlew assemble${{ github.event.inputs.build_type == 'release' && 'Release' || 'Debug' }}
+        ${{ env.GRADLE_EXE }} assemble${{ github.event.inputs.build_type == 'release' && 'Release' || 'Debug' }}
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
