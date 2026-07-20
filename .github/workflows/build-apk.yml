@@ -5,6 +5,14 @@ on:
       file_id:
         description: 'Enter your Google Drive File ID'
         required: true
+      build_type:
+        description: 'Select build variant'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
 
 jobs:
   build:
@@ -21,6 +29,21 @@ jobs:
     - name: Unzip project
       run: unzip project.zip -d project
 
+    # Only patch for release builds
+    - name: Patch app/build.gradle to use debug signing for release
+      if: github.event.inputs.build_type == 'release'
+      run: |
+        cd project/project
+        BUILD_FILE="app/build.gradle"
+        if [ -f "$BUILD_FILE" ]; then
+          # Insert signingConfig line inside the release block
+          sed -i '/release {/a\            signingConfig signingConfigs.debug' "$BUILD_FILE"
+          echo "Patched $BUILD_FILE to use debug signing for release."
+        else
+          echo "Could not find app/build.gradle - make sure your project structure is standard."
+          exit 1
+        fi
+
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
@@ -35,10 +58,10 @@ jobs:
     - name: Build APK
       run: |
         cd project/project
-        gradle assembleDebug
+        ./gradlew assemble${{ github.event.inputs.build_type == 'release' && 'Release' || 'Debug' }}
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: My-App
-        path: project/project/app/build/outputs/apk/debug/*.apk
+        name: My-App-${{ github.event.inputs.build_type }}
+        path: project/project/app/build/outputs/apk/${{ github.event.inputs.build_type }}/*.apk
