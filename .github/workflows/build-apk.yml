@@ -29,14 +29,31 @@ jobs:
     - name: Unzip project
       run: unzip project.zip -d project
 
-    # Only patch for release builds
+    # Find the root directory that contains gradlew
+    - name: Locate project root
+      id: find_root
+      run: |
+        cd project
+        GRADLEW_PATH=$(find . -name "gradlew" -type f -print -quit)
+        if [ -z "$GRADLEW_PATH" ]; then
+          echo "gradlew not found in the extracted files."
+          exit 1
+        fi
+        PROJECT_ROOT=$(dirname "$GRADLEW_PATH")
+        echo "PROJECT_ROOT=$PROJECT_ROOT" >> $GITHUB_ENV
+        echo "Found gradlew in: $PROJECT_ROOT"
+
+    # Make gradlew executable
+    - name: Make gradlew executable
+      run: chmod +x project/${{ env.PROJECT_ROOT }}/gradlew
+
+    # Patch app/build.gradle for release builds
     - name: Patch app/build.gradle to use debug signing for release
       if: github.event.inputs.build_type == 'release'
       run: |
-        cd project/project
+        cd project/${{ env.PROJECT_ROOT }}
         BUILD_FILE="app/build.gradle"
         if [ -f "$BUILD_FILE" ]; then
-          # Insert signingConfig line inside the release block
           sed -i '/release {/a\            signingConfig signingConfigs.debug' "$BUILD_FILE"
           echo "Patched $BUILD_FILE to use debug signing for release."
         else
@@ -57,11 +74,11 @@ jobs:
 
     - name: Build APK
       run: |
-        cd project/project
+        cd project/${{ env.PROJECT_ROOT }}
         ./gradlew assemble${{ github.event.inputs.build_type == 'release' && 'Release' || 'Debug' }}
 
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
         name: My-App-${{ github.event.inputs.build_type }}
-        path: project/project/app/build/outputs/apk/${{ github.event.inputs.build_type }}/*.apk
+        path: project/${{ env.PROJECT_ROOT }}/app/build/outputs/apk/${{ github.event.inputs.build_type }}/*.apk
